@@ -148,7 +148,7 @@
         history.push({ role: 'assistant', content: data.reply });
         addBubble('ai', data.reply);
       } else {
-        addBubble('ai', 'Error: ' + (data.error || 'Unknown error'));
+        addBubble('ai', data.reply || 'Something went wrong. Please try again.');
       }
     } catch(e) {
       removeTyping();

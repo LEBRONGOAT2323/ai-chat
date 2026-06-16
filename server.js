@@ -35,7 +35,7 @@ app.post('/chat', async (req, res) => {
     });
 
     const data = await response.json();
-    if (!response.ok) return res.status(response.status).json({ error: JSON.stringify(data) });
+    if (!response.ok) return res.status(response.status).json({ error: 'Something went wrong. Please try again.' });
     const text = data.choices?.[0]?.message?.content || '';
     res.json({ reply: text });
   } catch (err) {
