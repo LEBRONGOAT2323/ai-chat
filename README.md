@@ -19,14 +19,6 @@ While the full vision of **PHANTOM** has not been revealed yet, this chatbot ser
 
 ---
 
-## 📸 Preview
-
-*Coming soon.*
-
-You can add screenshots or GIFs here to showcase PHANTOM AI in action.
-
----
-
 ## 🚧 Project Status
 
 PHANTOM AI is currently **under active development**.
