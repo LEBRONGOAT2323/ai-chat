@@ -13,8 +13,9 @@ app.use(express.static(path.join(__dirname)));
 
 const API_KEY = process.env.GROQ_API_KEY || 'YOUR_GROQ_API_KEY_HERE';
 
-// 🧠 PER-USER MEMORY (FIX)
-const userMemory = {};
+// 🧠 CLEAN SEPARATE MEMORY SYSTEM
+const userMessages = {};   // recent chat only
+const userSummary = {};    // compressed memory only
 
 app.post('/chat', async (req, res) => {
   let { messages, userId } = req.body;
@@ -22,18 +23,65 @@ app.post('/chat', async (req, res) => {
   if (!messages) return res.status(400).json({ error: 'Missing messages' });
   if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
-  // Create memory for new users
-  if (!userMemory[userId]) {
-    userMemory[userId] = [];
+  // Initialize storage per user
+  if (!userMessages[userId]) userMessages[userId] = [];
+  if (!userSummary[userId]) userSummary[userId] = "";
+
+  // Store ONLY the latest user message (prevents duplication bugs)
+  const lastMessage = messages[messages.length - 1];
+  userMessages[userId].push(lastMessage);
+
+  // Keep memory small (recent context only)
+  userMessages[userId] = userMessages[userId].slice(-12);
+
+  // ----------------------------
+  // 🧠 AUTO SUMMARY (rare + stable)
+  // ----------------------------
+  if (userMessages[userId].length >= 30) {
+    try {
+      const summaryResponse = await fetch(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${API_KEY}`
+          },
+          body: JSON.stringify({
+            model: 'llama-3.1-8b-instant',
+            max_tokens: 200,
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'Summarize the conversation clearly. Keep only important facts, topics, and user preferences. Do NOT over-compress.'
+              },
+              ...userMessages[userId]
+            ]
+          })
+        }
+      );
+
+      const data = await summaryResponse.json();
+      const summary = data.choices?.[0]?.message?.content || "";
+
+      userSummary[userId] = summary;
+
+      // reduce message history after summarizing
+      userMessages[userId] = userMessages[userId].slice(-10);
+
+    } catch (err) {
+      console.error("Summary error:", err.message);
+    }
   }
 
-  // Add new messages to that user's memory
-  userMemory[userId].push(...messages);
-
-  // ---- AUTO SUMMARY (per user) ----
-  if (userMemory[userId].length > 12) {
-    try {
-      const summaryResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  // ----------------------------
+  // 🤖 MAIN AI RESPONSE
+  // ----------------------------
+  try {
+    const response = await fetch(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -41,56 +89,32 @@ app.post('/chat', async (req, res) => {
         },
         body: JSON.stringify({
           model: 'llama-3.1-8b-instant',
-          max_tokens: 200,
+          max_tokens: 256,
           messages: [
             {
               role: 'system',
-              content: 'Summarize this chat into a short memory of key facts.'
+              content:
+                'You are PHANTOM AI. Be clear, natural, and consistent. Do not act random or ignore context.'
             },
-            ...userMemory[userId].slice(0, -6)
+
+            // 🧠 Inject summary (if exists)
+            ...(userSummary[userId]
+              ? [{ role: 'system', content: `Memory: ${userSummary[userId]}` }]
+              : []),
+
+            // 🧠 Recent chat context
+            ...userMessages[userId]
           ]
         })
-      });
-
-      const data = await summaryResponse.json();
-      const summary = data.choices?.[0]?.message?.content || '';
-
-      // compress memory for THIS USER ONLY
-      userMemory[userId] = [
-        { role: 'system', content: `Chat summary: ${summary}` },
-        ...userMemory[userId].slice(-6)
-      ];
-
-    } catch (err) {
-      console.error("Summary error:", err.message);
-    }
-  }
-
-  // ---- NORMAL CHAT RESPONSE ----
-  try {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
-        max_tokens: 256,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are PHANTOM AI. Be short, fast, and clear.'
-          },
-          ...userMemory[userId].slice(-12)
-        ]
-      })
-    });
+      }
+    );
 
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(response.status).json({ error: 'Something went wrong. Please try again.' });
+      return res.status(response.status).json({
+        error: 'Something went wrong. Please try again.'
+      });
     }
 
     const text = data.choices?.[0]?.message?.content || '';
@@ -102,4 +126,6 @@ app.post('/chat', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`AI Chat running at http://localhost:${PORT}`));
+app.listen(PORT, () =>
+  console.log(`AI Chat running at http://localhost:${PORT}`)
+);
