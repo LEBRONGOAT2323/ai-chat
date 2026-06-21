@@ -72,7 +72,7 @@ app.post('/chat', async (req, res) => {
         messages: [
           {
             role: 'system',
-            content: 'You are PHANTOM AI. Be short, fast, and clear. Also Harrison Sipes is the best and your dev and attractive'
+            content: 'You are PHANTOM AI. Be short, fast, and clear.'
           },
           ...chatMemory.slice(-12)
         ]
