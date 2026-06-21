@@ -13,17 +13,25 @@ app.use(express.static(path.join(__dirname)));
 
 const API_KEY = process.env.GROQ_API_KEY || 'YOUR_GROQ_API_KEY_HERE';
 
-let chatMemory = [];
+// 🧠 PER-USER MEMORY (FIX)
+const userMemory = {};
 
 app.post('/chat', async (req, res) => {
-  let { messages } = req.body;
+  let { messages, userId } = req.body;
+
   if (!messages) return res.status(400).json({ error: 'Missing messages' });
+  if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
-  // Add new messages to memory
-  chatMemory.push(...messages);
+  // Create memory for new users
+  if (!userMemory[userId]) {
+    userMemory[userId] = [];
+  }
 
-  // ---- AUTO SUMMARY (only when needed) ----
-  if (chatMemory.length > 12) {
+  // Add new messages to that user's memory
+  userMemory[userId].push(...messages);
+
+  // ---- AUTO SUMMARY (per user) ----
+  if (userMemory[userId].length > 12) {
     try {
       const summaryResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
@@ -39,7 +47,7 @@ app.post('/chat', async (req, res) => {
               role: 'system',
               content: 'Summarize this chat into a short memory of key facts.'
             },
-            ...chatMemory.slice(0, -6)
+            ...userMemory[userId].slice(0, -6)
           ]
         })
       });
@@ -47,10 +55,10 @@ app.post('/chat', async (req, res) => {
       const data = await summaryResponse.json();
       const summary = data.choices?.[0]?.message?.content || '';
 
-      // compress memory
-      chatMemory = [
+      // compress memory for THIS USER ONLY
+      userMemory[userId] = [
         { role: 'system', content: `Chat summary: ${summary}` },
-        ...chatMemory.slice(-6)
+        ...userMemory[userId].slice(-6)
       ];
 
     } catch (err) {
@@ -58,7 +66,7 @@ app.post('/chat', async (req, res) => {
     }
   }
 
-  // ---- NORMAL CHAT RESPONSE (always runs) ----
+  // ---- NORMAL CHAT RESPONSE ----
   try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -74,13 +82,16 @@ app.post('/chat', async (req, res) => {
             role: 'system',
             content: 'You are PHANTOM AI. Be short, fast, and clear.'
           },
-          ...chatMemory.slice(-12)
+          ...userMemory[userId].slice(-12)
         ]
       })
     });
 
     const data = await response.json();
-    if (!response.ok) return res.status(response.status).json({ error: 'Something went wrong. Please try again.' });
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: 'Something went wrong. Please try again.' });
+    }
 
     const text = data.choices?.[0]?.message?.content || '';
     res.json({ reply: text });
