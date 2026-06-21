@@ -50,6 +50,7 @@
     <h1>PHANTOM AI</h1>
     <span>Powered by PHANTOM</span>
   </header>
+
   <div id="messages">
     <div class="empty" id="empty">
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -62,6 +63,7 @@
       </div>
     </div>
   </div>
+
   <div id="composer">
     <textarea id="input" placeholder="Type a message…" rows="1"></textarea>
     <button id="send" onclick="sendMsg()" aria-label="Send">
@@ -76,12 +78,18 @@
   const sendBtn = document.getElementById('send');
   let history = [];
 
+  // ✅ USER ID (NEW FIX)
+  if (!localStorage.getItem('phantom_id')) {
+    localStorage.setItem('phantom_id', crypto.randomUUID());
+  }
+
   function pick(btn) { inputEl.value = btn.textContent; sendMsg(); }
 
   inputEl.addEventListener('input', () => {
     inputEl.style.height = 'auto';
     inputEl.style.height = Math.min(inputEl.scrollHeight, 130) + 'px';
   });
+
   inputEl.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
   });
@@ -95,29 +103,39 @@
     clearEmpty();
     const wrap = document.createElement('div');
     wrap.className = 'msg ' + role;
+
     const av = document.createElement('div');
     av.className = 'avatar';
     av.textContent = role === 'user' ? 'You' : 'AI';
+
     const bub = document.createElement('div');
     bub.className = 'bubble';
     bub.textContent = text;
+
     wrap.appendChild(av);
     wrap.appendChild(bub);
     msgsEl.appendChild(wrap);
     msgsEl.scrollTop = msgsEl.scrollHeight;
+
     return bub;
   }
 
   function showTyping() {
     clearEmpty();
     const wrap = document.createElement('div');
-    wrap.className = 'msg ai'; wrap.id = 'typing';
+    wrap.className = 'msg ai';
+    wrap.id = 'typing';
+
     const av = document.createElement('div');
-    av.className = 'avatar'; av.textContent = 'AI';
+    av.className = 'avatar';
+    av.textContent = 'AI';
+
     const bub = document.createElement('div');
     bub.className = 'bubble typing';
     bub.innerHTML = '<span></span><span></span><span></span>';
-    wrap.appendChild(av); wrap.appendChild(bub);
+
+    wrap.appendChild(av);
+    wrap.appendChild(bub);
     msgsEl.appendChild(wrap);
     msgsEl.scrollTop = msgsEl.scrollHeight;
   }
@@ -130,35 +148,44 @@
   async function sendMsg() {
     const text = inputEl.value.trim();
     if (!text || sendBtn.disabled) return;
-    inputEl.value = ''; inputEl.style.height = 'auto';
+
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
     sendBtn.disabled = true;
+
     addBubble('user', text);
     history.push({ role: 'user', content: text });
+
     showTyping();
 
     try {
       const res = await fetch('https://ai-chat-production-a519.up.railway.app/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history.slice(-6) })  
+        body: JSON.stringify({
+          userId: localStorage.getItem('phantom_id'), // ✅ FIXED
+          messages: history.slice(-6)
+        })
       });
+
       const data = await res.json();
       removeTyping();
+
       if (data.reply) {
         history.push({ role: 'assistant', content: data.reply });
         addBubble('ai', data.reply);
       } else {
-        addBubble('ai', data.reply || 'Something went wrong. Please try again.');
+        addBubble('ai', data.error || 'Something went wrong.');
       }
+
     } catch(e) {
       removeTyping();
-      addBubble('ai', 'Could not connect to server. Is it running? (node server.js)');
+      addBubble('ai', 'Could not connect to server.');
     }
 
     sendBtn.disabled = false;
     inputEl.focus();
   }
-
 </script>
 </body>
 </html>
