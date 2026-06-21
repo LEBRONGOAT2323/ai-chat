@@ -13,10 +13,52 @@ app.use(express.static(path.join(__dirname)));
 
 const API_KEY = process.env.GROQ_API_KEY || 'YOUR_GROQ_API_KEY_HERE';
 
+let chatMemory = [];
+
 app.post('/chat', async (req, res) => {
-  const { messages } = req.body;
+  let { messages } = req.body;
   if (!messages) return res.status(400).json({ error: 'Missing messages' });
 
+  // Add new messages to memory
+  chatMemory.push(...messages);
+
+  // ---- AUTO SUMMARY (only when needed) ----
+  if (chatMemory.length > 12) {
+    try {
+      const summaryResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-8b-instant',
+          max_tokens: 200,
+          messages: [
+            {
+              role: 'system',
+              content: 'Summarize this chat into a short memory of key facts.'
+            },
+            ...chatMemory.slice(0, -6)
+          ]
+        })
+      });
+
+      const data = await summaryResponse.json();
+      const summary = data.choices?.[0]?.message?.content || '';
+
+      // compress memory
+      chatMemory = [
+        { role: 'system', content: `Chat summary: ${summary}` },
+        ...chatMemory.slice(-6)
+      ];
+
+    } catch (err) {
+      console.error("Summary error:", err.message);
+    }
+  }
+
+  // ---- NORMAL CHAT RESPONSE (always runs) ----
   try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -25,24 +67,24 @@ app.post('/chat', async (req, res) => {
         'Authorization': `Bearer ${API_KEY}`
       },
       body: JSON.stringify({
-        model: (
-  (messages[messages.length - 1]?.content?.length > 200) ||
-  /explain|why|how|debug|code|step|reason/i.test(messages[messages.length - 1]?.content || '')
-)
-  ? 'gpt-oss-120b'
-  : 'llama-3.3-70b-versatile',
-        max_tokens: 1024,
+        model: 'llama-3.1-8b-instant',
+        max_tokens: 256,
         messages: [
-          { role: 'system', content: 'You are a helpful, friendly AI assistant.' },
-          ...messages
+          {
+            role: 'system',
+            content: 'You are PHANTOM AI. Be short, fast, and clear.'
+          },
+          ...chatMemory.slice(-12)
         ]
       })
     });
 
     const data = await response.json();
     if (!response.ok) return res.status(response.status).json({ error: 'Something went wrong. Please try again.' });
+
     const text = data.choices?.[0]?.message?.content || '';
     res.json({ reply: text });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
