@@ -25,7 +25,12 @@ app.post('/chat', async (req, res) => {
         'Authorization': `Bearer ${API_KEY}`
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: (
+  (messages[messages.length - 1]?.content?.length > 200) ||
+  /explain|why|how|debug|code|step|reason/i.test(messages[messages.length - 1]?.content || '')
+)
+  ? 'gpt-oss-120b'
+  : 'llama-3.3-70b-versatile',
         max_tokens: 1024,
         messages: [
           { role: 'system', content: 'You are a helpful, friendly AI assistant.' },
